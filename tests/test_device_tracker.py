@@ -13,7 +13,7 @@ from homeassistant.const import (
     STATE_UNKNOWN,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -439,3 +439,34 @@ async def test_device_tracker_unavailable_when_coordinator_fails(
 
     state = hass.states.get("device_tracker.wican_device_location")
     assert state.state == STATE_UNAVAILABLE
+
+
+async def test_device_tracker_shares_the_device_with_the_sensors(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """The tracker registers against the same device, under the same name.
+
+    It used to hardcode the device name as "WiCAN Device" while every other
+    platform used the config entry title. Both register under the same
+    identifiers, so the device ended up named inconsistently and the
+    tracker's entity_id was derived from the wrong one.
+    """
+    mock_config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    entity_registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+
+    tracker = entity_registry.async_get("device_tracker.wican_device_location")
+    sensor = entity_registry.async_get("sensor.wican_device_batt_voltage")
+    assert tracker is not None
+    assert sensor is not None
+
+    # One device, not two
+    assert tracker.device_id == sensor.device_id
+
+    device = device_registry.async_get(tracker.device_id)
+    assert device is not None
+    assert device.name == mock_config_entry.title
