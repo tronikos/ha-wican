@@ -14,6 +14,7 @@ from custom_components.wican.param_loader import (
     get_param_state_class,
     _infer_device_class_from_unit,
     get_param_description,
+    get_param_display_name,
     is_binary_sensor,
     get_all_params,
      is_valid_device_class,
@@ -760,3 +761,20 @@ class TestDeviceClassInferredFromUnit:
         assert get_param_device_class("COOLANT_TMP") == "temperature"
         assert get_param_device_class("SPEED") == "speed"
         assert get_param_device_class("THROTTLE") is None
+class TestGetParamDisplayName:
+    """Tests for get_param_display_name function."""
+
+    def test_uses_the_description(self) -> None:
+        """params.json already carries a readable name for every param."""
+        assert get_param_display_name("SOC") == "State Of Charge"
+        assert get_param_display_name("HV_C_V_001") == "Cell Voltage 001"
+        assert get_param_display_name("HV_V") == "High Voltage Battery Voltage"
+
+    def test_resolves_alias_spellings(self) -> None:
+        """The hex-prefixed standard PID spellings resolve too."""
+        assert get_param_display_name("42-ControlModuleVolt") == "Control Module Voltage"
+        assert get_param_display_name("46-AmbientAirTemp") == "Ambient Air Temperature"
+
+    def test_falls_back_to_the_key(self) -> None:
+        """An unknown PID keeps the name the device gave it."""
+        assert get_param_display_name("SOME_CUSTOM_PID") == "SOME_CUSTOM_PID"
