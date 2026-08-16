@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+import pytest
 
 # ZeroconfServiceInfo moved between HA releases: see config_flow.py for the
 # same compatibility dance.
@@ -18,10 +17,9 @@ except ImportError:
     from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from homeassistant.const import CONF_NAME, CONF_WEBHOOK_ID
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.wican.const import DOMAIN
-
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 
 async def test_user_flow_success(
@@ -135,7 +133,7 @@ async def test_zeroconf_flow_success(
         await hass.async_block_till_done()
 
         assert result2["type"] == FlowResultType.CREATE_ENTRY
-        assert result2["title"] == "wican_test.local."
+        assert result2["title"] == "wican_test.local"
         # Check that MAC address was captured
         assert result2["data"].get("mac") == "AA:BB:CC:DD:EE:FF"
         assert result2["data"].get("device_id") == "test_device_123"
@@ -241,7 +239,7 @@ async def test_zeroconf_during_onboarding(
 
     # Zeroconf creates entry directly (no confirmation step)
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["title"] == "wican_test.local."
+    assert result["title"] == "wican_test.local"
     assert result["description_placeholders"]["webhook_url"] == result["data"]["webhook_url"]
 
 
@@ -334,7 +332,7 @@ async def test_zeroconf_flow_legacy_firmware(
 
         # Should create entry with fallback unique_id (hostname-based)
         assert result2["type"] == FlowResultType.CREATE_ENTRY
-        assert result2["title"] == "wican_legacy.local."
+        assert result2["title"] == "wican_legacy.local"
         assert result2["description_placeholders"]["webhook_url"] == result2["data"]["webhook_url"]
         # No MAC address in data for legacy firmware
         assert "mac" not in result2["data"] or not result2["data"].get("mac")
@@ -481,7 +479,7 @@ async def test_zeroconf_confirm_webhook_url_exception(
 
     assert result2["type"] == FlowResultType.CREATE_ENTRY
     # Title should be the hostname (discovered_name)
-    assert result2["title"] == "wican_test.local."
+    assert result2["title"] == "wican_test.local"
     assert result2["data"]["webhook_url"] == result2["description_placeholders"]["webhook_url"]
 
 

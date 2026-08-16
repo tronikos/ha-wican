@@ -430,7 +430,7 @@ async def test_pid_sensor_real_world_data_format(
     assert rpm_entity is not None
     rpm_state = hass.states.get("sensor.wican_device_engine_rpm")
     assert rpm_state.state == "4300"
-    assert rpm_state.attributes.get("unit_of_measurement") == "RPM"
+    assert rpm_state.attributes.get("unit_of_measurement") == "rpm"
     # Note: "frequency" class should be normalized to None or valid HA device class
     
     # SPEED sensor
@@ -1114,14 +1114,15 @@ async def test_text_pid_sensor_has_no_state_class(
 ) -> None:
     """PIDs with neither a unit nor a device class must not be measurements.
 
-    Vehicle profiles mark flags such as CHARGING and AC_PLUG as binary and send
-    them with unit "" and class "none"; HA raises if a measurement sensor
+    GEAR and the bitfield PID below have no unit and no device class but
+    are not marked binary in params.json (unlike CHARGING/AC_PLUG, which
+    the binary_sensor platform owns); HA raises if a measurement sensor
     reports a non-numeric state.
     """
     entry_data = mock_config_entry.data.copy()
-    entry_data["pid_keys"] = ["AC_PLUG", "41-MonStatusDriveCycle"]
+    entry_data["pid_keys"] = ["GEAR", "41-MonStatusDriveCycle"]
     entry_data["config"] = {
-        "AC_PLUG": {"unit": "", "class": "none"},
+        "GEAR": {"unit": "none", "class": "none"},
         # Bitfield PIDs report the placeholder unit "Encoded"
         "41-MonStatusDriveCycle": {"unit": "Encoded", "class": "none"},
     }
@@ -1143,7 +1144,7 @@ async def test_text_pid_sensor_has_no_state_class(
         await hass.async_block_till_done()
 
     for entity_id in (
-        "sensor.wican_device_ac_plug",
+        "sensor.wican_device_gear",
         "sensor.wican_device_41_monstatusdrivecycle",
     ):
         state = hass.states.get(entity_id)
