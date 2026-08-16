@@ -11,6 +11,7 @@ from custom_components.wican.param_loader import (
     get_param_unit,
     get_param_device_class,
     get_param_icon,
+    get_param_state_class,
     get_param_description,
     is_binary_sensor,
     get_all_params,
@@ -678,3 +679,33 @@ class TestStandardPidFallbacks:
         assert get_param_unit("totally_unknown") is None
         assert get_param_device_class("totally_unknown") is None
         assert get_param_description("totally_unknown") is None
+
+
+class TestGetParamStateClass:
+    """Tests for get_param_state_class function."""
+
+    def test_lifetime_counters(self) -> None:
+        """Cumulative totals are flagged so they can be total_increasing."""
+        for name in (
+            "KWH_CHARGED",
+            "KWH_DISCHARGED",
+            "HV_AH_CHARGED",
+            "HV_AH_DISCHARGED",
+            "ODOMETER",
+            "DIST_SINCE_FULL_CHARGE",
+        ):
+            assert get_param_state_class(name) == "total_increasing", name
+
+    def test_alias_spellings_resolve(self) -> None:
+        """Alias forms of a counter resolve too."""
+        assert get_param_state_class("a6-odometer") == "total_increasing"
+        assert get_param_state_class("odometer") == "total_increasing"
+
+    def test_instantaneous_params_have_no_hint(self) -> None:
+        """Values that are levels or readings get no hint."""
+        for name in ("SOC", "HV_V", "RANGE", "HV_CAPACITY_KWH", "HV_KWH_R"):
+            assert get_param_state_class(name) is None, name
+
+    def test_unknown_param(self) -> None:
+        """Unknown names get no hint."""
+        assert get_param_state_class("totally_unknown") is None
