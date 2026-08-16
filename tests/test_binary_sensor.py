@@ -6,8 +6,14 @@ from unittest.mock import patch
 
 import pytest
 
-from homeassistant.const import CONF_WEBHOOK_ID, STATE_ON, STATE_OFF
-from homeassistant.core import HomeAssistant
+from homeassistant.const import (
+    CONF_WEBHOOK_ID,
+    STATE_OFF,
+    STATE_ON,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+)
+from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.wican.binary_sensor import (
@@ -16,7 +22,7 @@ from custom_components.wican.binary_sensor import (
 )
 from custom_components.wican.const import DOMAIN
 
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import MockConfigEntry, mock_restore_cache
 
 
 async def test_binary_sensor_entities_created(
@@ -427,3 +433,41 @@ async def test_binary_pid_map_cleared_on_unload(
 def test_pid_value_to_is_on(value, expected) -> None:
     """"off" must read as off - bool("off") is True."""
     assert pid_value_to_is_on(value) is expected
+
+
+@pytest.mark.parametrize(
+    ("restored", "expected"),
+    [
+        (STATE_ON, STATE_ON),
+        (STATE_OFF, STATE_OFF),
+        # Neither of these is a state the device ever reported, so the entity
+        # must not claim to know it is off
+        (STATE_UNAVAILABLE, STATE_UNKNOWN),
+        (STATE_UNKNOWN, STATE_UNKNOWN),
+    ],
+)
+async def test_binary_sensor_restore_does_not_fabricate_off(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    restored: str,
+    expected: str,
+) -> None:
+    """A restored unavailable/unknown state must not come back as off.
+
+    The comparison used to be `last_state.state == "on"`, so anything that
+    was not literally "on" - including a state recorded while the device was
+    unreachable - restored as a confident "off".
+    """
+    mock_config_entry.add_to_hass(hass)
+    mock_restore_cache(hass, [State("binary_sensor.wican_device_ble_status", restored)])
+
+    with patch(
+        "custom_components.wican._async_register_webhook_on_device",
+        return_value=True,
+    ):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    state = hass.states.get("binary_sensor.wican_device_ble_status")
+    assert state is not None
+    assert state.state == expected
