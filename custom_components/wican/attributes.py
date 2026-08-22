@@ -67,6 +67,13 @@ SENSOR_DESCRIPTIONS: tuple[WiCANSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=0,
     ),
+    WiCANSensorEntityDescription(
+        key="last_update",
+        translation_key="last_update",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:update",
+        device_class=SensorDeviceClass.TIMESTAMP,
+    ),
 )
 
 BINARY_SENSOR_DESCRIPTIONS: tuple[WiCANBinarySensorEntityDescription, ...] = (
