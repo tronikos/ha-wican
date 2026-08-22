@@ -27,9 +27,34 @@ _LOGGER = logging.getLogger(__name__)
 # Entity will be named "WiCAN Device Location" with has_entity_name=True
 TRACKER_NAME = "Location"
 
+# hw_version substrings for models no current firmware sends a "gps" block
+# for. WiCAN-PRO is the only model sold with a GPS module; unrecognized or
+# missing hw_version keeps the previous always-create behaviour rather than
+# guessing.
+_NO_GPS_HARDWARE_MARKERS = ("obd", "usb")
+
+# Persisted once a device proves it can report a fix, so a firmware update
+# that adds GPS to a model this integration otherwise assumes can't isn't
+# permanently missing a tracker.
+CONF_HAS_REPORTED_GPS = "has_reported_gps"
+
+
+def _supports_location(config_entry: WiCANConfigEntry) -> bool:
+    """Return whether this device is expected to ever report GPS.
+
+    Creating the tracker unconditionally left it permanently "unknown" on
+    WiCAN-OBD/-USB hardware: no current firmware build populates the
+    webhook's "gps" key on those models, only WiCAN-PRO ships a GPS module.
+    """
+    if config_entry.data.get(CONF_HAS_REPORTED_GPS):
+        return True
+
+    hw_version = str(config_entry.data.get("hw_version", "")).lower()
+    return not any(marker in hw_version for marker in _NO_GPS_HARDWARE_MARKERS)
+
 
 async def async_setup_entry(
-    _hass: HomeAssistant,
+    hass: HomeAssistant,
     config_entry: WiCANConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
@@ -38,12 +63,38 @@ async def async_setup_entry(
     Creates a single device_tracker entity that represents the GPS location
     of the WiCAN device (typically mounted in a vehicle).
     """
+    if _supports_location(config_entry):
+        async_add_entities([WiCANDeviceTrackerEntity(config_entry)])
+        _LOGGER.debug("Device tracker entity created for %s", config_entry.title)
+        return
 
-    # Always create the tracker entity - it will show as unavailable if no GPS data
-    entity = WiCANDeviceTrackerEntity(config_entry)
-    async_add_entities([entity])
+    _LOGGER.debug(
+        "Skipping device tracker for %s (hw_version=%s has no GPS)",
+        config_entry.title,
+        config_entry.data.get("hw_version"),
+    )
 
-    _LOGGER.debug("Device tracker entity created for %s", config_entry.title)
+    coordinator = config_entry.runtime_data.coordinator
+
+    @callback
+    def _create_tracker_on_first_fix() -> None:
+        gps_data = coordinator.data.get("gps", {}) if coordinator.data else {}
+        if gps_data.get("latitude") is None or gps_data.get("longitude") is None:
+            return
+
+        unsub()
+        new_data = dict(config_entry.data)
+        new_data[CONF_HAS_REPORTED_GPS] = True
+        hass.config_entries.async_update_entry(config_entry, data=new_data)
+
+        async_add_entities([WiCANDeviceTrackerEntity(config_entry)])
+        _LOGGER.debug(
+            "First GPS fix received from %s; device tracker created",
+            config_entry.title,
+        )
+
+    unsub = coordinator.async_add_listener(_create_tracker_on_first_fix)
+    config_entry.async_on_unload(unsub)
 
 
 class WiCANDeviceTrackerEntity(CoordinatorEntity, TrackerEntity, RestoreEntity):
