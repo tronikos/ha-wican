@@ -201,6 +201,73 @@ async def test_user_flow_duplicate_device_id_aborts(hass: HomeAssistant) -> None
     assert result2["reason"] == "already_configured"
 
 
+async def test_user_flow_aborts_for_zeroconf_added_device(hass: HomeAssistant) -> None:
+    """Test the manual flow recognizes a device already added over zeroconf."""
+    # Zeroconf keys its entries on the MAC, which is not the device_id, so only
+    # the stored device_id identifies the device across both flows.
+    MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="aabbccddeeff",
+        data={
+            CONF_WEBHOOK_ID: "existing_webhook",
+            "mac": "AA:BB:CC:DD:EE:FF",
+            "device_id": "aabbccddef00",
+        },
+    ).add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_USER},
+    )
+
+    with patch(
+        "custom_components.wican.config_flow.async_get_clientsession",
+        return_value=_status_session(device_id="aabbccddef00"),
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"mdns": "wican_test.local"},
+        )
+
+    assert result2["type"] == FlowResultType.ABORT
+    assert result2["reason"] == "already_configured"
+
+
+async def test_zeroconf_aborts_for_manually_added_device(hass: HomeAssistant) -> None:
+    """Test zeroconf recognizes a device already added manually."""
+    MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="aabbccddef00",
+        data={
+            CONF_WEBHOOK_ID: "existing_webhook",
+            "mdns": "http://wican_test.local",
+            "device_id": "aabbccddef00",
+        },
+    ).add_to_hass(hass)
+
+    discovery_info = ZeroconfServiceInfo(
+        ip_address="192.168.1.100",
+        ip_addresses=["192.168.1.100"],
+        hostname="wican_test.local.",
+        name="WiCAN-WebServer._wican._tcp.local.",
+        port=80,
+        type="_wican._tcp.local.",
+        properties={
+            "mac": b"AA:BB:CC:DD:EE:FF",
+            "device_id": b"aabbccddef00",
+        },
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_ZEROCONF},
+        data=discovery_info,
+    )
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
 async def test_zeroconf_flow_success(
     hass: HomeAssistant,
     mock_aiohttp_session,
