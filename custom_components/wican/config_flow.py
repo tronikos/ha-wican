@@ -83,6 +83,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 entry_data.get("mdns"),
             )
             if device_id:
+                if self._device_id_configured(device_id):
+                    return self.async_abort(reason="already_configured")
                 entry_data["device_id"] = device_id
                 await self.async_set_unique_id(device_id)
                 self._abort_if_unique_id_configured()
@@ -140,6 +142,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             base_id = hostname if hostname else name
             unique_id = f"{base_id}-{host}:{port}"
             _LOGGER.debug("Using hostname-based unique_id: %s", unique_id)
+
+        # A device added manually is keyed on its device_id, so its unique id
+        # does not match the MAC preferred here.  Compare the device_id itself
+        # to recognize the device whichever way it was added first.
+        if device_id and self._device_id_configured(device_id):
+            return self.async_abort(reason="already_configured")
 
         await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured()
@@ -202,6 +210,21 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "name": self.discovered_name or "WiCAN",
                 "url": self.discovered_mdns or self.discovered_host or "Unknown",
             },
+        )
+
+    @callback
+    def _device_id_configured(self, device_id: str) -> bool:
+        """Return whether an entry already holds this device_id.
+
+        Args:
+            device_id: The device_id reported by the device.
+
+        Returns:
+            True if a configured entry belongs to that device.
+        """
+        return any(
+            entry.data.get("device_id") == device_id
+            for entry in self._async_current_entries(include_ignore=False)
         )
 
     @staticmethod
