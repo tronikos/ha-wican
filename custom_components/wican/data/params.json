@@ -2954,6 +2954,38 @@
       "max": "2000"
     }
   },
+  "HV_C_SOC_MAX": {
+    "description": "HV battery highest cell state of charge",
+    "settings": {
+      "unit": "%",
+      "class": "none",
+      "min": "0",
+      "max": "100"
+    }
+  },
+  "HV_C_SOC_MAX_NO": {
+    "description": "HV battery which cell has the highest state of charge",
+    "settings": {
+      "unit": "none",
+      "class": "none"
+    }
+  },
+  "HV_C_SOC_MIN": {
+    "description": "HV battery lowest cell state of charge",
+    "settings": {
+      "unit": "%",
+      "class": "none",
+      "min": "0",
+      "max": "100"
+    }
+  },
+  "HV_C_SOC_MIN_NO": {
+    "description": "HV battery which cell has the lowest state of charge",
+    "settings": {
+      "unit": "none",
+      "class": "none"
+    }
+  },
   "HV_ISO_BAT_N": {
     "description": "Insulation resistance, negative pole, HV battery",
     "settings": {
@@ -2988,6 +3020,15 @@
       "class": "none",
       "min": "0",
       "max": "100000"
+    }
+  },
+  "HV_T": {
+    "description": "HV battery temperature",
+    "settings": {
+      "unit": "°C",
+      "class": "temperature",
+      "min": "-40",
+      "max": "80"
     }
   },
   "HV_T_MAX_NO": {
@@ -3052,7 +3093,7 @@
   "LV_R_INT": {
     "description": "12V battery internal resistance",
     "settings": {
-      "unit": "none",
+      "unit": "mΩ",
       "class": "none",
       "min": "0"
     }
