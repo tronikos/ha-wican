@@ -695,6 +695,7 @@ class TestGetParamStateClass:
             "HV_AH_DISCHARGED",
             "ODOMETER",
             "DIST_SINCE_FULL_CHARGE",
+            "TIME_AT_100_SOC",
         ):
             assert get_param_state_class(name) == "total_increasing", name
 
