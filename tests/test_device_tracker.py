@@ -12,8 +12,36 @@ from homeassistant.helpers import entity_registry as er
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.wican.const import DOMAIN
+from custom_components.wican.const import CONF_POST_INTERVAL, DOMAIN
 from custom_components.wican.device_tracker import CONF_HAS_REPORTED_GPS
+
+
+@pytest.fixture
+def mock_config_entry() -> MockConfigEntry:
+    """A WiCAN-PRO entry, overriding the conftest one for this module.
+
+    hw_version matters here in a way it does not elsewhere: only a PRO gets its
+    tracker created up front, so the behaviour tests below - which need a
+    tracker to exist before any GPS arrives - have to use one. The string is
+    what the firmware actually reports ("WiCAN-" + "OBD-PRO", see wican-fw
+    CMakeLists.txt), not a tidied-up "WiCAN-PRO".
+    """
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title="WiCAN Device",
+        data={
+            "mdns": "http://wican_test.local:80",
+            CONF_WEBHOOK_ID: "test_webhook_id",
+            "fw_version": "2.00",
+            "hw_version": "WiCAN-OBD-PRO",
+            "device_id": "test_device_123",
+            "git_version": "abc123",
+            "host": "wican_test.local",
+            "ip": "192.168.1.100",
+        },
+        options={CONF_POST_INTERVAL: 1000},
+        unique_id="wican_test-192.168.1.100:80",
+    )
 
 
 @pytest.fixture
@@ -432,8 +460,13 @@ async def test_device_tracker_not_created_for_gps_less_hardware(
 async def test_device_tracker_created_for_pro_hardware(
     hass: HomeAssistant,
 ) -> None:
-    """WiCAN-PRO ships a GPS module, so the tracker is still created eagerly."""
-    entry = _obd_config_entry(**{"hw_version": "WiCAN-PRO"})
+    """WiCAN-PRO ships a GPS module, so the tracker is still created eagerly.
+
+    The hw_version is the string the firmware really sends. An earlier revision
+    deny-listed "obd", which matches "WiCAN-OBD-PRO" and so skipped the tracker
+    on the one model that has GPS.
+    """
+    entry = _obd_config_entry(**{"hw_version": "WiCAN-OBD-PRO"})
     entry.add_to_hass(hass)
 
     with patch(
@@ -498,3 +531,79 @@ async def test_device_tracker_created_eagerly_once_gps_seen_before(
         await hass.async_block_till_done()
 
     assert hass.states.get("device_tracker.wican_device_location") is not None
+
+
+async def test_device_tracker_not_created_before_hw_version_is_known(
+    hass: HomeAssistant,
+) -> None:
+    """A fresh install has no hw_version yet, and must not guess "create it".
+
+    Only the webhook handler writes hw_version onto the config entry, from the
+    device's first POST. The platforms are set up long before that, so on a
+    newly added integration this code sees an empty string. An earlier revision
+    deny-listed "obd"/"usb", so an empty string fell through to eager creation
+    and every device got the permanently-unavailable entity the branch exists to
+    prevent - which then survived as an orphaned registry entry even once the
+    real hw_version arrived.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="WiCAN Device",
+        data={
+            "mdns": "http://wican_test.local:80",
+            CONF_WEBHOOK_ID: "test_webhook_id",
+            "device_id": "test_device_123",
+            # No hw_version: this is what a just-added entry looks like.
+        },
+        unique_id="wican_test-unknown-hw",
+    )
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.wican._async_register_webhook_on_device",
+        return_value=True,
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert hass.states.get("device_tracker.wican_device_location") is None
+
+
+async def test_config_entry_unloads_after_lazy_tracker_creation(
+    hass: HomeAssistant,
+    hass_client,
+) -> None:
+    """Unloading after a first GPS fix must succeed.
+
+    The coordinator's remove-listener callback raises KeyError when called
+    twice, and it is reachable both from the first-fix callback and from the
+    entry unload. An exception out of _async_process_on_unload() aborts the
+    unload, so the entry could no longer be reloaded, reconfigured or deleted -
+    and async_unload() swallows it and returns False, so nothing failed loudly.
+    """
+    entry = _obd_config_entry()
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.wican._async_register_webhook_on_device",
+        return_value=True,
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert hass.states.get("device_tracker.wican_device_location") is None
+
+    client = await hass_client()
+    await client.post(
+        f"/api/webhook/{entry.data[CONF_WEBHOOK_ID]}",
+        json={
+            "status": {"device_id": "test_device_123"},
+            "gps": {"latitude": 37.7749, "longitude": -122.4194, "accuracy": 5},
+        },
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get("device_tracker.wican_device_location") is not None
+
+    # Returns False rather than raising if _async_process_on_unload() blew up.
+    assert await hass.config_entries.async_unload(entry.entry_id) is True
+    await hass.async_block_till_done()
