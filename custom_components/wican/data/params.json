@@ -3120,7 +3120,7 @@
     "description": "Electric machine rotor speed",
     "settings": {
       "unit": "rpm",
-      "class": "speed",
+      "class": "none",
       "min": "-10000",
       "max": "20000"
     }
