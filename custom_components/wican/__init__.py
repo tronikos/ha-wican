@@ -531,6 +531,10 @@ async def _async_register_webhook_on_device(  # noqa: C901, PLR0912, PLR0915
         ", ".join(str(ep) for ep in endpoints),
     )
 
+    # Did any endpoint answer, whatever the status? That is what separates a
+    # broken device from an absent one at the end of the loop.
+    device_answered = False
+
     # Retry loop with exponential backoff
     for attempt in range(max_retries):
         try:
@@ -571,6 +575,7 @@ async def _async_register_webhook_on_device(  # noqa: C901, PLR0912, PLR0915
 
                             return True
 
+                        device_answered = True
                         text = await resp.text()
                         _LOGGER.warning(
                             "WiCAN webhook registration failed with HTTP %d at %s: %s (attempt %d/%d)",
@@ -581,12 +586,10 @@ async def _async_register_webhook_on_device(  # noqa: C901, PLR0912, PLR0915
                             max_retries,
                         )
                     except ClientError as err:
-                        # Keep trying other endpoints if one fails to resolve/connect.
-                        # Debug, not warning: with several endpoint candidates
-                        # (host, ip, mDNS) every registration of a device that is
-                        # simply unreachable logged one of these per candidate per
-                        # attempt. The summary at the end of the retry loop is the
-                        # only line that can judge whether the failure matters.
+                        # Keep trying other endpoints. Debug, not warning: one
+                        # of these per candidate per attempt while a device is
+                        # offline, and the summary after the loop is what decides
+                        # whether that matters.
                         _LOGGER.debug(
                             "WiCAN webhook registration connection error at %s: %s (attempt %d/%d)",
                             ep,
@@ -639,39 +642,35 @@ async def _async_register_webhook_on_device(  # noqa: C901, PLR0912, PLR0915
             _LOGGER.debug("Retrying in %ds...", backoff_seconds)
             await asyncio.sleep(backoff_seconds)
 
-    # All retries failed.
-    #
-    # Whether that is a problem depends entirely on whether this device has ever
-    # reached us. Registration is a best-effort refresh: the device stores the
-    # webhook URL in its own config and keeps posting without us, so a device
-    # that has posted before and is merely unreachable right now is the normal
-    # state of affairs for anything that is not permanently powered - a WiCAN on
-    # a switched ignition pin is unreachable whenever the car is off, which for
-    # most cars is most of the day. Logging that at error level meant an error on
-    # every restart, every time, saying "device may not send updates" about a
-    # device that was about to send updates perfectly well.
-    #
-    # pid_keys is the evidence: only the sensor platform writes it, and only from
-    # autopid_data in a webhook post. If it is populated, the device has reached
-    # us, so registration has worked at least once.
-    if entry.data.get("pid_keys"):
-        _LOGGER.info(
-            "Could not reach %s to refresh the webhook registration after %d "
-            "attempts. This is expected for a device that is not always powered: "
-            "it already has the webhook URL stored and will keep posting. "
-            "Registration will be retried on the next reload",
-            ", ".join(str(ep) for ep in endpoints),
+    # A device that answered and refused is broken. A device that never
+    # answered is simply not reachable, which is normal whenever the car is away
+    # or asleep - it keeps the webhook URL in its own config and resumes posting
+    # on its own, so an error there is wrong and fires on every reload.
+    where = ", ".join(str(ep) for ep in endpoints)
+    if device_answered:
+        _LOGGER.error(
+            "%s answered with an error status for all %d webhook registration "
+            "attempts. Check the device firmware version",
+            where,
             max_retries,
+        )
+    elif entry.data.get("fw_version"):
+        # Only the webhook handler writes fw_version, so this device has posted
+        # to us before and is already registered.
+        _LOGGER.info(
+            "Could not reach %s to refresh the webhook registration. The device "
+            "keeps the URL itself and will resume posting; registration is "
+            "retried on the next reload",
+            where,
         )
     else:
         _LOGGER.error(
             "Failed to register webhook after %d attempts, and this device has "
-            "never posted, so it may never have been registered. "
-            "Please check: 1) Device is powered on and connected to network, "
-            "2) Home Assistant can reach device at %s, "
+            "never posted. Please check: 1) Device is powered on and connected "
+            "to network, 2) Home Assistant can reach device at %s, "
             "3) Device firewall allows connections on port 80",
             max_retries,
-            ", ".join(str(ep) for ep in endpoints),
+            where,
         )
     return False
 
