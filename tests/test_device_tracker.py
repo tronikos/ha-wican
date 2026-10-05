@@ -19,7 +19,10 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.wican.const import CONF_POST_INTERVAL, DOMAIN
-from custom_components.wican.device_tracker import CONF_HAS_REPORTED_GPS
+from custom_components.wican.device_tracker import (
+    CONF_HAS_REPORTED_GPS,
+    WiCANDeviceTrackerEntity,
+)
 
 
 @pytest.fixture
@@ -691,3 +694,13 @@ async def test_config_entry_unloads_after_lazy_tracker_creation(
     # Returns False rather than raising if _async_process_on_unload() blew up.
     assert await hass.config_entries.async_unload(entry.entry_id) is True
     await hass.async_block_till_done()
+
+
+def test_device_tracker_does_not_override_location_name():
+    """Test the entity leaves location_name to TrackerEntity.
+
+    Home Assistant deprecated overriding location_name on a TrackerEntity and
+    drops support in 2027.7; it logs a warning at import for any subclass that
+    defines it. The state comes from latitude/longitude zone matching instead.
+    """
+    assert "location_name" not in WiCANDeviceTrackerEntity.__dict__
