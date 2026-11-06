@@ -676,3 +676,55 @@ async def test_per_endpoint_connection_errors_are_logged_at_debug(
     ]
     assert connection_errors
     assert {r.levelno for r in connection_errors} == {logging.DEBUG}
+
+
+async def test_per_endpoint_timeout_tries_next_endpoint_at_debug(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_session,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A TimeoutError on the first endpoint does not abort the rest or log a warning."""
+    entry = await _setup_without_registering(hass, mock_config_entry)
+    mock_session.post.side_effect = TimeoutError()
+
+    caplog.clear()
+    with (
+        caplog.at_level(logging.DEBUG, logger="custom_components.wican"),
+        patch(
+            "custom_components.wican.async_get_clientsession",
+            return_value=mock_session,
+        ),
+    ):
+        assert await _async_register_webhook_on_device(hass, entry, max_retries=1) is False
+
+    # Both host and mdns candidates were tried in the single attempt
+    assert mock_session.post.call_count >= 2
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
+async def test_data_only_entry_update_does_not_reregister_webhook(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Updating entry.data without changing post_interval does not re-register the webhook."""
+    entry = await _setup_without_registering(hass, mock_config_entry)
+
+    with patch(
+        "custom_components.wican._async_register_webhook_on_device",
+        return_value=True,
+    ) as mock_register:
+        hass.config_entries.async_update_entry(
+            entry,
+            data={**entry.data, "pid_keys": ["SOC"]},
+        )
+        await hass.async_block_till_done()
+        assert not mock_register.called
+
+        hass.config_entries.async_update_entry(
+            entry,
+            options={CONF_POST_INTERVAL: entry.runtime_data.post_interval + 60},
+        )
+        await hass.async_block_till_done()
+        assert mock_register.call_count == 1
+

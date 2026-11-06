@@ -538,11 +538,10 @@ async def _async_register_webhook_on_device(  # noqa: C901, PLR0912, PLR0915
     # Retry loop with exponential backoff
     for attempt in range(max_retries):
         try:
-            # Add timeout protection
-            async with asyncio.timeout(WEBHOOK_REGISTRATION_TIMEOUT):
-                # Try each endpoint candidate until one succeeds
-                for ep in endpoints:
-                    try:
+            # Try each endpoint candidate until one succeeds
+            for ep in endpoints:
+                try:
+                    async with asyncio.timeout(WEBHOOK_REGISTRATION_TIMEOUT):
                         resp = await session.post(
                             str(ep),
                             json=payload,
@@ -585,29 +584,22 @@ async def _async_register_webhook_on_device(  # noqa: C901, PLR0912, PLR0915
                             attempt + 1,
                             max_retries,
                         )
-                    except ClientError as err:
-                        # Keep trying other endpoints. Debug, not warning: one
-                        # of these per candidate per attempt while a device is
-                        # offline, and the summary after the loop is what decides
-                        # whether that matters.
-                        _LOGGER.debug(
-                            "WiCAN webhook registration connection error at %s: %s (attempt %d/%d)",
-                            ep,
-                            err,
-                            attempt + 1,
-                            max_retries,
-                        )
+                except (ClientError, TimeoutError) as err:
+                    # Keep trying other endpoints. Debug, not warning: one
+                    # of these per candidate per attempt while a device is
+                    # offline, and the summary after the loop is what decides
+                    # whether that matters.
+                    _LOGGER.debug(
+                        "WiCAN webhook registration connection error at %s: %s (attempt %d/%d)",
+                        ep,
+                        err,
+                        attempt + 1,
+                        max_retries,
+                    )
 
-                # No endpoint succeeded during this attempt
-                raise _WebhookEndpointsFailedError  # noqa: TRY301
+            # No endpoint succeeded during this attempt
+            raise _WebhookEndpointsFailedError  # noqa: TRY301
 
-        except TimeoutError:
-            _LOGGER.warning(
-                "WiCAN webhook registration timeout after %ds (attempt %d/%d)",
-                WEBHOOK_REGISTRATION_TIMEOUT,
-                attempt + 1,
-                max_retries,
-            )
         except _WebhookEndpointsFailedError:
             _LOGGER.debug(
                 "All WiCAN endpoints failed for entry %s on attempt %d/%d",
@@ -677,8 +669,9 @@ async def _async_register_webhook_on_device(  # noqa: C901, PLR0912, PLR0915
 
 async def _async_entry_updated(hass: HomeAssistant, entry: WiCANConfigEntry) -> None:
     """Handle config entry updates (options) by re-registering the webhook."""
-    # Update post_interval in runtime_data
     new_post_interval = entry.options.get(CONF_POST_INTERVAL, DEFAULT_POST_INTERVAL)
+    if new_post_interval == entry.runtime_data.post_interval:
+        return
     entry.runtime_data.post_interval = new_post_interval
 
     # Re-register webhook with new interval
