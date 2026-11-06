@@ -501,17 +501,12 @@ async def test_device_tracker_created_lazily_after_first_gps_fix(
     await client.post(f"/api/webhook/{entry.data[CONF_WEBHOOK_ID]}", json=mock_gps_data)
     await hass.async_block_till_done()
 
-    # The tracker exists now, and the config entry remembers this device can
-    # report GPS so it's created eagerly on every future startup.
-    assert hass.states.get("device_tracker.wican_device_location") is not None
-    assert entry.data.get(CONF_HAS_REPORTED_GPS) is True
-
-    # It missed the payload that triggered its own creation - the next fix
-    # populates its coordinates.
-    await client.post(f"/api/webhook/{entry.data[CONF_WEBHOOK_ID]}", json=mock_gps_data)
-    await hass.async_block_till_done()
-
+    # The tracker exists now with its coordinates already populated from the
+    # first fix, and the config entry remembers this device can report GPS so
+    # it's created eagerly on every future startup.
     state = hass.states.get("device_tracker.wican_device_location")
+    assert state is not None
+    assert entry.data.get(CONF_HAS_REPORTED_GPS) is True
     assert state.attributes["latitude"] == 37.7749
     assert state.attributes["longitude"] == -122.4194
 

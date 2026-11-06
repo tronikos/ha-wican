@@ -236,17 +236,8 @@ class WiCANDeviceTrackerEntity(CoordinatorEntity, TrackerEntity, RestoreEntity):
             and self._attr_longitude is not None
         )
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        gps_data = self.coordinator.data.get("gps", {})
-
-        if not gps_data:
-            # No GPS data available
-            _LOGGER.debug("No GPS data in coordinator update")
-            return
-
-        # Update GPS coordinates
+    def _apply_gps_data(self, gps_data: dict[str, Any]) -> None:
+        """Apply GPS coordinates and attributes from a coordinator gps dict."""
         latitude = gps_data.get("latitude")
         longitude = gps_data.get("longitude")
 
@@ -292,6 +283,17 @@ class WiCANDeviceTrackerEntity(CoordinatorEntity, TrackerEntity, RestoreEntity):
             except (ValueError, TypeError) as err:
                 _LOGGER.warning("Failed to parse GPS data: %s", err)
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        gps_data = self.coordinator.data.get("gps", {})
+
+        if not gps_data:
+            # No GPS data available
+            _LOGGER.debug("No GPS data in coordinator update")
+            return
+
+        self._apply_gps_data(gps_data)
         self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
@@ -333,3 +335,7 @@ class WiCANDeviceTrackerEntity(CoordinatorEntity, TrackerEntity, RestoreEntity):
                 self._attr_latitude,
                 self._attr_longitude,
             )
+
+        # If created lazily on the first GPS fix, coordinator.data already has it
+        if self.coordinator.data and self.coordinator.data.get("gps"):
+            self._apply_gps_data(self.coordinator.data["gps"])
