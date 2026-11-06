@@ -340,3 +340,26 @@ async def test_text_sensors_have_no_state_class(
         state = hass.states.get(entity_id)
         assert state is not None, entity_id
         assert state.attributes.get("state_class") is None, entity_id
+
+
+async def test_batt_voltage_non_numeric_string_does_not_raise(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_webhook_data: dict,
+    hass_client,
+) -> None:
+    """Non-numeric batt_voltage strings become unknown rather than raising ValueError."""
+    entry = init_integration
+    client = await hass_client()
+    data = dict(mock_webhook_data)
+    data["status"] = {**mock_webhook_data["status"], "batt_voltage": "invalid"}
+
+    await client.post(
+        f"/api/webhook/{entry.data[CONF_WEBHOOK_ID]}", json=data,
+    )
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.wican_device_batt_voltage")
+    assert state is not None
+    assert state.state == "unknown"
+
