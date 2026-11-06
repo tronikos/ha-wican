@@ -353,6 +353,16 @@ class WiCANReportingBinarySensorEntity(WiCANEntity, BinarySensorEntity, RestoreE
         self._timeout = timeout
         self._unsub_stale: CALLBACK_TYPE | None = None
 
+    @property
+    def _stale_timeout(self) -> float:
+        runtime_data = getattr(self.config_entry, "runtime_data", None)
+        if runtime_data is not None and getattr(runtime_data, "post_interval", None) is not None:
+            return max(
+                runtime_data.post_interval * REPORTING_STALE_MULTIPLIER,
+                REPORTING_MIN_TIMEOUT,
+            )
+        return self._timeout
+
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator.
 
@@ -372,10 +382,11 @@ class WiCANReportingBinarySensorEntity(WiCANEntity, BinarySensorEntity, RestoreE
             self.async_write_ha_state()
             return
 
+        timeout = self._stale_timeout
         age = (dt_util.utcnow() - last).total_seconds()
-        if age < self._timeout:
+        if age < timeout:
             self._attr_is_on = True
-            self._arm_stale_timer(self._timeout - age)
+            self._arm_stale_timer(timeout - age)
         else:
             self._attr_is_on = False
         self.async_write_ha_state()
@@ -403,14 +414,18 @@ class WiCANReportingBinarySensorEntity(WiCANEntity, BinarySensorEntity, RestoreE
     async def async_added_to_hass(self) -> None:
         """Restore entity state."""
         last_state = await self.async_get_last_state()
-        if last_state is not None and self._attr_is_on is None:
-            self._attr_is_on = last_state.state == "on"
+        if (
+            last_state is not None
+            and self._attr_is_on is None
+            and last_state.state in (STATE_ON, STATE_OFF)
+        ):
+            self._attr_is_on = last_state.state == STATE_ON
         await super().async_added_to_hass()
-        if self._unsub_stale is None:
+        if self._unsub_stale is None and self._attr_is_on is True:
             # Nothing armed a timer above (no push has arrived this
             # session) - a restored "on" needs one anyway, or it would
             # never go stale if the device never reports again.
-            self._arm_stale_timer(self._timeout)
+            self._arm_stale_timer(self._stale_timeout)
 
     async def async_will_remove_from_hass(self) -> None:
         """Cancel any pending stale-check timer."""

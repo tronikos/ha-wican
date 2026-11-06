@@ -659,3 +659,38 @@ async def test_pid_config_persisted_when_value_arrives_in_later_post(
     assert charging_state.state == STATE_ON
     assert charging_state.attributes.get("device_class") == "battery_charging"
 
+
+async def test_reporting_sensor_stays_unknown_if_never_reported(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """A new or restored-unknown Reporting sensor does not flip to off after timeout."""
+    import asyncio
+    from homeassistant.core import State
+    from pytest_homeassistant_custom_component.common import mock_restore_cache
+
+    mock_restore_cache(
+        hass,
+        [State("binary_sensor.wican_device_reporting", "unavailable")],
+    )
+
+    with (
+        patch("custom_components.wican.binary_sensor.REPORTING_STALE_MULTIPLIER", 0),
+        patch("custom_components.wican.binary_sensor.REPORTING_MIN_TIMEOUT", 0.05),
+        patch(
+            "custom_components.wican._async_register_webhook_on_device",
+            return_value=True,
+        ),
+        patch("custom_components.wican.async_get_clientsession"),
+    ):
+        mock_config_entry.add_to_hass(hass)
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert hass.states.get("binary_sensor.wican_device_reporting").state == "unknown"
+        await asyncio.sleep(0.15)
+        await hass.async_block_till_done()
+        assert hass.states.get("binary_sensor.wican_device_reporting").state == "unknown"
+        assert mock_config_entry.runtime_data.post_interval is not None
+        mock_config_entry.runtime_data.post_interval = 120
+
