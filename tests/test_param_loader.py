@@ -762,6 +762,22 @@ class TestDeviceClassInferredFromUnit:
         assert get_param_device_class("COOLANT_TMP") == "temperature"
         assert get_param_device_class("SPEED") == "speed"
         assert get_param_device_class("THROTTLE") is None
+
+    def test_device_supplied_battery_class_inferred_from_unit(self) -> None:
+        """When the device sends class="battery" in its config payload, _normalize_device_class infers from unit."""
+        from homeassistant.components.sensor import SensorDeviceClass
+        from custom_components.wican.sensor import _normalize_device_class
+
+        assert _normalize_device_class("battery", "V", "LV_V") == SensorDeviceClass.VOLTAGE
+        assert _normalize_device_class("battery", "%", "SOC") == SensorDeviceClass.BATTERY
+        assert _normalize_device_class("battery", "Ah", "HV_CAPACITY") is None
+
+    def test_mixed_case_params_json_keys(self) -> None:
+        """Mixed-case keys in params.json (PCM_Fuel_Rate, PCM_Transmission_Temp) resolve."""
+        assert get_param_unit("PCM_Fuel_Rate") == "g/s"
+        assert get_param_device_class("PCM_Transmission_Temp") == "temperature"
+
+
 class TestGetParamDisplayName:
     """Tests for get_param_display_name function."""
 
@@ -779,3 +795,4 @@ class TestGetParamDisplayName:
     def test_falls_back_to_the_key(self) -> None:
         """An unknown PID keeps the name the device gave it."""
         assert get_param_display_name("SOME_CUSTOM_PID") == "SOME_CUSTOM_PID"
+

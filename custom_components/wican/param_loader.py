@@ -584,7 +584,14 @@ def _lookup_param(param_name: str) -> ParamDefinition | None:
     key = _normalize_param_name(param_name)
     if key in _PARAMS:
         return _PARAMS[key]
-    return _STANDARD_PID_FALLBACKS.get(key)
+    if key in _STANDARD_PID_FALLBACKS:
+        return _STANDARD_PID_FALLBACKS[key]
+    # A few entries in params.json have mixed-case keys (e.g. PCM_Fuel_Rate,
+    # PCM_Transmission_Temp), while _normalize_param_name uppercases.
+    for k, v in _PARAMS.items():
+        if k.upper() == key:
+            return v
+    return None
 
 
 # Valid Home Assistant sensor device classes
