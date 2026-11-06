@@ -375,10 +375,19 @@ async def async_setup_entry(  # noqa: C901, PLR0915
 
     async def _async_process_pid_update(data):
         pid_data = data.get("autopid_data", {})
-        if not pid_data:
+        pid_config = data.get("config", {})
+        if not pid_data and not pid_config:
             return
 
-        pid_config = data.get("config", {})
+        existing_config = dict(config_entry.data.get("config", {}))
+        updated_config = dict(existing_config)
+        # Firmware sends "config" only once per boot (on the first webhook post),
+        # so persist every PID config entry even if that PID's first value arrives
+        # on a later post.
+        for pid_key, cfg in pid_config.items():
+            if isinstance(cfg, dict):
+                updated_config[pid_key] = cfg
+
         new_entities = []
         # A webhook can already be queued when the entry unloads, so the map
         # may be gone by the time this task runs.
@@ -391,7 +400,7 @@ async def async_setup_entry(  # noqa: C901, PLR0915
                 # Owned by the binary_sensor platform.
                 continue
             if pid_key not in sensors:
-                config = pid_config.get(pid_key, {})
+                config = pid_config.get(pid_key) or updated_config.get(pid_key, {})
                 # Use _get_pid_unit with config unit for consistent fallback handling
                 unit = _get_pid_unit(pid_key, config.get("unit"))
                 device_class = _normalize_device_class(config.get("class"), unit, pid_key)
@@ -421,11 +430,6 @@ async def async_setup_entry(  # noqa: C901, PLR0915
         # owns, so both platforms can restore their entities on restart.
         known_keys = set(config_entry.data.get("pid_keys", []))
         all_keys = known_keys | set(pid_data)
-        existing_config = dict(config_entry.data.get("config", {}))
-        updated_config = dict(existing_config)
-        for pid_key in pid_data:
-            if pid_key in pid_config:
-                updated_config[pid_key] = pid_config[pid_key]
 
         # Only write when something actually changed - updating the entry
         # fires the update listener, which re-registers the webhook.
@@ -438,15 +442,13 @@ async def async_setup_entry(  # noqa: C901, PLR0915
         if new_entities:
             async_add_entities(new_entities)
 
+    @callback
     def handle_pid_update(webhook_id, data):
         # IMPORTANT: multiple WiCAN entries share the same dispatcher signal.
         # Filter by this entry's webhook_id to avoid cross-device entity creation.
         if webhook_id != config_entry.runtime_data.webhook_id:
             return
-        hass.loop.call_soon_threadsafe(
-            hass.async_create_task,
-            _async_process_pid_update(data),
-        )
+        hass.async_create_task(_async_process_pid_update(data))
 
     # Connect the dispatcher signal to handle_pid_update
     unsub = async_dispatcher_connect(hass, DOMAIN, handle_pid_update)

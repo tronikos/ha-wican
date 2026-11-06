@@ -194,13 +194,13 @@ async def async_setup_entry(  # noqa: C901
             return
 
         webhook_config = data.get("config", {})
+        stored_config = config_entry.data.get("config", {})
         new_entities = []
         for pid_key in pid_data:
             if pid_key in sensors or not is_binary_sensor(pid_key):
                 continue
-            entity = _build_pid_binary_sensor(
-                config_entry, pid_key, webhook_config.get(pid_key, {}),
-            )
+            config = webhook_config.get(pid_key) or stored_config.get(pid_key, {})
+            entity = _build_pid_binary_sensor(config_entry, pid_key, config)
             sensors[pid_key] = entity
             new_entities.append(entity)
 
@@ -210,15 +210,13 @@ async def async_setup_entry(  # noqa: C901
         if new_entities:
             async_add_entities(new_entities)
 
+    @callback
     def handle_pid_update(webhook_id, data):
         # IMPORTANT: multiple WiCAN entries share the same dispatcher signal.
         # Filter by this entry's webhook_id to avoid cross-device entity creation.
         if webhook_id != config_entry.runtime_data.webhook_id:
             return
-        hass.loop.call_soon_threadsafe(
-            hass.async_create_task,
-            _async_process_pid_update(data),
-        )
+        hass.async_create_task(_async_process_pid_update(data))
 
     unsub = async_dispatcher_connect(hass, DOMAIN, handle_pid_update)
     config_entry.async_on_unload(unsub)

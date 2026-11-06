@@ -609,3 +609,53 @@ async def test_reporting_sensor_restored_state_still_goes_stale(
         await hass.async_block_till_done()
 
     assert hass.states.get("binary_sensor.wican_device_reporting").state == STATE_OFF
+
+
+async def test_pid_config_persisted_when_value_arrives_in_later_post(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Firmware sends config only on Post 1; PIDs arriving on Post 2 use stored config."""
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+    mock_config_entry.add_to_hass(hass)
+    with patch("custom_components.wican.async_get_clientsession"), patch(
+        "custom_components.wican.WiCANDataUpdateCoordinator.async_config_entry_first_refresh",
+    ):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    coordinator = mock_config_entry.runtime_data.coordinator
+    webhook_id = mock_config_entry.runtime_data.webhook_id
+
+    # Post 1 includes config for SOC, custom_volt, and CHARGING, but only SOC value
+    post1 = {
+        "autopid_data": {"SOC": 62},
+        "config": {
+            "SOC": {"unit": "%", "class": "battery"},
+            "custom_volt": {"unit": "V", "class": "voltage"},
+            "CHARGING": {"unit": "", "class": "battery_charging"},
+        },
+    }
+    coordinator.handle_webhook_data(post1)
+    async_dispatcher_send(hass, DOMAIN, webhook_id, post1)
+    await hass.async_block_till_done()
+
+    # Post 2 includes custom_volt and CHARGING in autopid_data without a config block
+    post2 = {
+        "autopid_data": {"SOC": 62, "custom_volt": 13.8, "CHARGING": "on"},
+    }
+    coordinator.handle_webhook_data(post2)
+    async_dispatcher_send(hass, DOMAIN, webhook_id, post2)
+    await hass.async_block_till_done()
+
+    custom_state = hass.states.get("sensor.wican_device_custom_volt")
+    assert custom_state is not None
+    assert custom_state.attributes.get("unit_of_measurement") == "V"
+    assert custom_state.attributes.get("device_class") == "voltage"
+
+    charging_state = hass.states.get("binary_sensor.wican_device_charging")
+    assert charging_state is not None
+    assert charging_state.state == STATE_ON
+    assert charging_state.attributes.get("device_class") == "battery_charging"
+
