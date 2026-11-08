@@ -118,7 +118,7 @@ def _normalize_device_class(
         and unit.strip() != "%"
     ):
         device_class = _infer_device_class_from_unit(unit)
-    elif device_class is None and pid_key:
+    if device_class is None and pid_key:
         # Try to get fallback from params.json if no class provided
         device_class = get_param_device_class(pid_key)
 
